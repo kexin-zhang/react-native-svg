@@ -2,7 +2,7 @@ buildscript {
     ext.safeExtGet = {prop, fallback ->
         rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
     }
-    
+
     // The Android Gradle plugin is only required when opening the android folder stand-alone.
     // This avoids unnecessary downloads and potential conflicts when the library is included as a
     // module dependency in an application project.
@@ -11,7 +11,7 @@ buildscript {
             google()
             jcenter()
         }
-        
+
         dependencies {
             //noinspection GradleDependency
             classpath("com.android.tools.build:gradle:3.5.1")
@@ -20,6 +20,7 @@ buildscript {
 }
 
 apply plugin: 'com.android.library'
+apply plugin: 'maven'
 
 android {
     compileSdkVersion safeExtGet('compileSdkVersion', 28)
@@ -49,4 +50,74 @@ repositories {
 dependencies {
     //noinspection GradleDynamicVersion
     implementation "com.facebook.react:react-native:${safeExtGet('reactnativeVersion', '+')}"
+}
+
+def configureReactNativePom(def pom) {
+    def packageJson = new groovy.json.JsonSlurper().parseText(file("../package.json").text)
+
+    pom.project {
+        name("react-native-svg")
+        artifactId("svg")
+        version(packageJson.version)
+        groupId("com.horcrux")
+        description(packageJson.description)
+        url(packageJson.homepage)
+
+        licenses {
+            license {
+                name(packageJson.license)
+                url("https://github.com/react-native-community/react-native-svg/blob/master/LICENSE.txt")
+                distribution("repo")
+            }
+        }
+
+        organization {
+          name("horcrux")
+        }
+    }
+}
+
+
+
+afterEvaluate { project ->
+
+  task androidJavadoc(type: Javadoc) {
+    source = android.sourceSets.main.java.srcDirs
+    classpath += files(android.bootClasspath)
+    classpath += files(project.getConfigurations().getByName('compile').asList())
+    include '**/*.java'
+  }
+
+  task androidJavadocJar(type: Jar, dependsOn: androidJavadoc) {
+    classifier = 'javadoc'
+    from androidJavadoc.destinationDir
+  }
+
+  task androidSourcesJar(type: Jar) {
+    classifier = 'sources'
+    from android.sourceSets.main.java.srcDirs
+    include '**/*.java'
+  }
+
+  android.libraryVariants.all { variant ->
+    def name = variant.name.capitalize()
+    task "jar${name}"(type: Jar, dependsOn: variant.javaCompile) {
+      from variant.javaCompile.destinationDir
+    }
+  }
+
+  artifacts {
+    archives androidSourcesJar
+    archives androidJavadocJar
+  }
+
+  task installArchives(type: Upload) {
+    configuration = configurations.archives
+    repositories.mavenDeployer {
+      // Deploy to react-native-event-bridge/maven, ready to publish to npm
+      repository url: "file://${projectDir}/../android/maven"
+
+      configureReactNativePom pom
+    }
+  }
 }
